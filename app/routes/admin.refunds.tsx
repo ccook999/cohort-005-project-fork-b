@@ -5,7 +5,12 @@ import { z } from "zod";
 import type { Route } from "./+types/admin.refunds";
 import { getCurrentUserId } from "~/lib/session";
 import { parseFormData } from "~/lib/validation";
-import { RefundStatus, UserRole, users } from "~/db/schema";
+import {
+  RefundRequestStatus,
+  RefundStatus,
+  UserRole,
+  users,
+} from "~/db/schema";
 import { db } from "~/db";
 import { eq } from "drizzle-orm";
 import { Card, CardContent } from "~/components/ui/card";
@@ -18,13 +23,15 @@ import {
   approveRefundRequest,
   declineRefundRequest,
   listRefundRequestsForReview,
+  markRefund,
   type RefundRequestForReview,
+  type RefundSummary,
 } from "~/lib/refunds.server";
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
 
 const refundFilterSchema = z
-  .nativeEnum(RefundStatus)
-  .catch(RefundStatus.Open);
+  .nativeEnum(RefundRequestStatus)
+  .catch(RefundRequestStatus.Open);
 
 const adminRefundActionSchema = z.discriminatedUnion("intent", [
   z.object({
@@ -45,13 +52,21 @@ const adminRefundActionSchema = z.discriminatedUnion("intent", [
       .min(1, "Write the buyer a note saying why it was declined.")
       .max(1000, "Please keep the note under 1000 characters."),
   }),
+  z.object({
+    intent: z.literal("mark_issued"),
+    refundId: z.coerce.number().int(),
+  }),
+  z.object({
+    intent: z.literal("mark_failed"),
+    refundId: z.coerce.number().int(),
+  }),
 ]);
 
 function getUserById(id: number) {
   return db.select().from(users).where(eq(users.id, id)).get();
 }
 
-/** Only a Platform Admin decides Refund Requests. */
+/** Only a Platform Admin decides Refund Requests and marks Refunds. */
 async function requirePlatformAdmin(request: Request) {
   const currentUserId = await getCurrentUserId(request);
 
@@ -103,6 +118,29 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
+  if (
+    parsed.data.intent === "mark_issued" ||
+    parsed.data.intent === "mark_failed"
+  ) {
+    const issued = parsed.data.intent === "mark_issued";
+    const marked = markRefund(
+      db,
+      parsed.data.refundId,
+      platformAdmin.id,
+      issued ? RefundStatus.Issued : RefundStatus.Failed,
+      new Date()
+    );
+
+    if (!marked.ok) {
+      return data({ error: marked.error }, { status: marked.status });
+    }
+
+    return {
+      success: true,
+      message: issued ? "Refund marked issued." : "Refund marked failed.",
+    };
+  }
+
   const { intent, refundRequestId, note } = parsed.data;
 
   const result =
@@ -139,10 +177,10 @@ export async function action({ request }: Route.ActionArgs) {
   };
 }
 
-const FILTERS: { status: RefundStatus; label: string }[] = [
-  { status: RefundStatus.Open, label: "Open" },
-  { status: RefundStatus.Approved, label: "Approved" },
-  { status: RefundStatus.Declined, label: "Declined" },
+const FILTERS: { status: RefundRequestStatus; label: string }[] = [
+  { status: RefundRequestStatus.Open, label: "Open" },
+  { status: RefundRequestStatus.Approved, label: "Approved" },
+  { status: RefundRequestStatus.Declined, label: "Declined" },
 ];
 
 export default function AdminRefunds({ loaderData }: Route.ComponentProps) {
@@ -174,7 +212,7 @@ export default function AdminRefunds({ loaderData }: Route.ComponentProps) {
             size="sm"
             onClick={() =>
               setSearchParams(
-                filter.status === RefundStatus.Open
+                filter.status === RefundRequestStatus.Open
                   ? {}
                   : { status: filter.status }
               )
@@ -270,7 +308,7 @@ function RefundRequestCard({
   >();
   const [note, setNote] = useState("");
   const isSubmitting = fetcher.state !== "idle";
-  const isOpen = refundRequest.status === RefundStatus.Open;
+  const isOpen = refundRequest.status === RefundRequestStatus.Open;
 
   useEffect(() => {
     if (fetcher.state !== "idle" || !fetcher.data) return;
@@ -359,22 +397,94 @@ function RefundRequestCard({
           </div>
         ) : (
           <div className="border-t pt-4 text-sm text-muted-foreground">
-            {refundRequest.status === RefundStatus.Approved
+            {refundRequest.status === RefundRequestStatus.Approved
               ? "Approved"
               : "Declined"}
             {refundRequest.decidedByName &&
               ` by ${refundRequest.decidedByName}`}
-            {refundRequest.resolvedAt &&
-              ` on ${new Date(refundRequest.resolvedAt).toLocaleDateString()}`}
+            {refundRequest.decidedAt &&
+              ` on ${new Date(refundRequest.decidedAt).toLocaleDateString()}`}
             {refundRequest.decisionNote && (
               <p className="mt-2 rounded-md bg-muted p-2 text-foreground">
                 {refundRequest.decisionNote}
               </p>
             )}
+            {refundRequest.refund && (
+              <RefundRow
+                refund={refundRequest.refund}
+                isSubmitting={isSubmitting}
+                onMark={(intent) =>
+                  fetcher.submit(
+                    { intent, refundId: String(refundRequest.refund!.id) },
+                    { method: "post" }
+                  )
+                }
+              />
+            )}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
+  [RefundStatus.Pending]: "Pending Refund",
+  [RefundStatus.Issued]: "Issued Refund",
+  [RefundStatus.Failed]: "Failed Refund",
+};
+
+/**
+ * The Refund that followed an approval. The money is sent outside Cadence, so a
+ * Platform Admin marks it Issued or Failed here. Issued is final.
+ */
+function RefundRow({
+  refund,
+  isSubmitting,
+  onMark,
+}: {
+  refund: RefundSummary;
+  isSubmitting: boolean;
+  onMark: (intent: "mark_issued" | "mark_failed") => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-foreground">
+      <div>
+        <span className="font-medium">
+          {REFUND_STATUS_LABELS[refund.status]}
+        </span>{" "}
+        · {formatPrice(refund.amount)}
+        {refund.statusChangedAt && (
+          <span className="text-muted-foreground">
+            {" "}
+            · marked
+            {refund.statusChangedByName && ` by ${refund.statusChangedByName}`}{" "}
+            on {new Date(refund.statusChangedAt).toLocaleDateString()}
+          </span>
+        )}
+      </div>
+      {refund.status !== RefundStatus.Issued && (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => onMark("mark_issued")}
+            disabled={isSubmitting}
+          >
+            Mark issued
+          </Button>
+          {refund.status === RefundStatus.Pending && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onMark("mark_failed")}
+              disabled={isSubmitting}
+            >
+              Mark failed
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

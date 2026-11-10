@@ -10,7 +10,12 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import { UserRole, RefundStatus, users } from "~/db/schema";
+import {
+  UserRole,
+  RefundRequestStatus,
+  RefundStatus,
+  users,
+} from "~/db/schema";
 import { AlertTriangle } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
 import { db } from "~/db";
@@ -100,7 +105,7 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Settings({ loaderData }: Route.ComponentProps) {
   const { user, refundRequests } = loaderData;
   const openCount = refundRequests.filter(
-    (refundRequest) => refundRequest.status === RefundStatus.Open
+    (refundRequest) => refundRequest.status === RefundRequestStatus.Open
   ).length;
   const fetcher = useFetcher();
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -210,16 +215,16 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                   >
                     {refundRequest.courseTitle}
                   </Link>
-                  <RefundStatusBadge status={refundRequest.status} />
+                  <RefundRequestStatusBadge status={refundRequest.status} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {formatPrice(refundRequest.amountPaid)} · raised{" "}
                   {new Date(refundRequest.requestedAt).toLocaleDateString()}
-                  {refundRequest.resolvedAt && (
+                  {refundRequest.decidedAt && (
                     <>
                       {" "}
                       · decided{" "}
-                      {new Date(refundRequest.resolvedAt).toLocaleDateString()}
+                      {new Date(refundRequest.decidedAt).toLocaleDateString()}
                     </>
                   )}
                 </p>
@@ -228,6 +233,11 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                   <p className="mt-2 rounded-md bg-muted p-2 text-sm">
                     <span className="font-medium">Our note: </span>
                     {refundRequest.decisionNote}
+                  </p>
+                )}
+                {refundRequest.refund && (
+                  <p className="mt-2 text-sm">
+                    {REFUND_MESSAGES[refundRequest.refund.status]}
                   </p>
                 )}
               </div>
@@ -239,28 +249,36 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   );
 }
 
-const REFUND_STATUS_BADGES: Record<
-  RefundStatus,
+/** What the buyer is told about the money after an approval. */
+const REFUND_MESSAGES: Record<RefundStatus, string> = {
+  [RefundStatus.Pending]: "Your refund is on its way.",
+  [RefundStatus.Issued]: "Your refund has been sent.",
+  [RefundStatus.Failed]:
+    "We couldn't send your refund yet. We're working on it and will let you know once it's sent.",
+};
+
+const REFUND_REQUEST_STATUS_BADGES: Record<
+  RefundRequestStatus,
   { label: string; className: string }
 > = {
-  [RefundStatus.Open]: {
+  [RefundRequestStatus.Open]: {
     label: "Open",
     className:
       "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
   },
-  [RefundStatus.Approved]: {
+  [RefundRequestStatus.Approved]: {
     label: "Approved",
     className:
       "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   },
-  [RefundStatus.Declined]: {
+  [RefundRequestStatus.Declined]: {
     label: "Declined",
     className: "bg-muted text-muted-foreground",
   },
 };
 
-function RefundStatusBadge({ status }: { status: RefundStatus }) {
-  const badge = REFUND_STATUS_BADGES[status];
+function RefundRequestStatusBadge({ status }: { status: RefundRequestStatus }) {
+  const badge = REFUND_REQUEST_STATUS_BADGES[status];
   return (
     <span
       className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}

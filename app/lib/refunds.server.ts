@@ -10,10 +10,12 @@ import {
   lessons,
   modules,
   purchases,
+  refundRequests,
   refunds,
   users,
   videoWatchEvents,
   LessonProgressStatus,
+  RefundRequestStatus,
   RefundStatus,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
@@ -25,9 +27,11 @@ import {
 } from "~/lib/refund-rules";
 
 // ─── Refunds ───
-// Everything about Refund Requests: whether a Purchase may be refunded, raising
-// a Refund Request, and a Platform Admin deciding one. See GLOSSARY.md for the
-// language and docs/adr/0001–0004 for why it works the way it does.
+// Everything about Refund Requests and Refunds: whether a Purchase may be
+// refunded, raising a Refund Request, a Platform Admin deciding one, and
+// marking the Refund that follows an approval as Issued or Failed. See
+// GLOSSARY.md for the language and docs/adr/0001–0005 for why it works the way
+// it does.
 //
 // Every function takes the database first, so tests can hand in an in-memory
 // one. Uses positional parameters (project convention).
@@ -92,12 +96,12 @@ function kindOf(seats: Seat[]): PurchaseKind {
 function getRefundRequestWithStatus(
   db: Queryable,
   purchaseId: number,
-  status: RefundStatus
+  status: RefundRequestStatus
 ) {
   return db
     .select()
-    .from(refunds)
-    .where(and(eq(refunds.purchaseId, purchaseId), eq(refunds.status, status)))
+    .from(refundRequests)
+    .where(and(eq(refundRequests.purchaseId, purchaseId), eq(refundRequests.status, status)))
     .get();
 }
 
@@ -114,7 +118,7 @@ export function getSeatAvailability(
 ): SeatAvailability {
   if (isClaimed(seat)) return "claimed";
   if (seat.refundedAt !== null) return "refunded";
-  if (getRefundRequestWithStatus(db, seat.purchaseId, RefundStatus.Open)) {
+  if (getRefundRequestWithStatus(db, seat.purchaseId, RefundRequestStatus.Open)) {
     return "on_hold";
   }
   return "available";
@@ -279,7 +283,7 @@ export function checkRefundRequest(
     return { ok: false, status: 404, error: "Purchase not found." };
   }
 
-  if (getRefundRequestWithStatus(db, purchase.id, RefundStatus.Open)) {
+  if (getRefundRequestWithStatus(db, purchase.id, RefundRequestStatus.Open)) {
     return {
       ok: false,
       status: 409,
@@ -287,7 +291,7 @@ export function checkRefundRequest(
     };
   }
 
-  if (getRefundRequestWithStatus(db, purchase.id, RefundStatus.Approved)) {
+  if (getRefundRequestWithStatus(db, purchase.id, RefundRequestStatus.Approved)) {
     return {
       ok: false,
       status: 409,
@@ -377,10 +381,10 @@ export function raiseRefundRequest(
   }
 
   const refundRequest = db
-    .insert(refunds)
+    .insert(refundRequests)
     .values({
       purchaseId: purchase.id,
-      status: RefundStatus.Open,
+      status: RefundRequestStatus.Open,
       reason,
       requestedAt: now.toISOString(),
     })
@@ -411,37 +415,74 @@ export function raiseRefundRequest(
 // ─── Listing Refund Requests ───
 
 const deciders = alias(users, "deciders");
+const refundMarkers = alias(users, "refund_markers");
+
+/** The Refund that followed an approval, as the pages show it. */
+export type RefundSummary = {
+  id: number;
+  amount: number;
+  status: RefundStatus;
+  statusChangedAt: string | null;
+  statusChangedByName: string | null;
+};
 
 function selectRefundRequests(db: Queryable) {
   return db
     .select({
-      id: refunds.id,
-      status: refunds.status,
-      reason: refunds.reason,
-      decisionNote: refunds.decisionNote,
-      requestedAt: refunds.requestedAt,
-      resolvedAt: refunds.resolvedAt,
+      id: refundRequests.id,
+      status: refundRequests.status,
+      reason: refundRequests.reason,
+      decisionNote: refundRequests.decisionNote,
+      requestedAt: refundRequests.requestedAt,
+      decidedAt: refundRequests.decidedAt,
       decidedByName: deciders.name,
       purchase: purchases,
       courseTitle: courses.title,
       courseSlug: courses.slug,
       buyerName: users.name,
       buyerEmail: users.email,
+      refundId: refunds.id,
+      refundAmount: refunds.amount,
+      refundStatus: refunds.status,
+      refundStatusChangedAt: refunds.statusChangedAt,
+      refundStatusChangedByName: refundMarkers.name,
     })
-    .from(refunds)
-    .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
+    .from(refundRequests)
+    .innerJoin(purchases, eq(refundRequests.purchaseId, purchases.id))
     .innerJoin(courses, eq(purchases.courseId, courses.id))
     .innerJoin(users, eq(purchases.userId, users.id))
-    .leftJoin(deciders, eq(refunds.resolvedByUserId, deciders.id));
+    .leftJoin(deciders, eq(refundRequests.decidedByUserId, deciders.id))
+    .leftJoin(refunds, eq(refunds.refundRequestId, refundRequests.id))
+    .leftJoin(
+      refundMarkers,
+      eq(refunds.statusChangedByUserId, refundMarkers.id)
+    );
+}
+
+function toRefundSummary(row: {
+  refundId: number | null;
+  refundAmount: number | null;
+  refundStatus: RefundStatus | null;
+  refundStatusChangedAt: string | null;
+  refundStatusChangedByName: string | null;
+}): RefundSummary | null {
+  if (row.refundId === null || row.refundStatus === null) return null;
+  return {
+    id: row.refundId,
+    amount: row.refundAmount ?? 0,
+    status: row.refundStatus,
+    statusChangedAt: row.refundStatusChangedAt,
+    statusChangedByName: row.refundStatusChangedByName,
+  };
 }
 
 export type RefundRequestForReview = {
   id: number;
-  status: RefundStatus;
+  status: RefundRequestStatus;
   reason: string;
   decisionNote: string | null;
   requestedAt: string;
-  resolvedAt: string | null;
+  decidedAt: string | null;
   decidedByName: string | null;
   buyerName: string;
   buyerEmail: string;
@@ -453,6 +494,8 @@ export type RefundRequestForReview = {
   figures: RefundFigures;
   ruleBreaks: RuleBreak[];
   canApprove: boolean;
+  /** Only an Approved Refund Request has one. */
+  refund: RefundSummary | null;
 };
 
 /**
@@ -462,12 +505,12 @@ export type RefundRequestForReview = {
  */
 export function listRefundRequestsForReview(
   db: Queryable,
-  status: RefundStatus,
+  status: RefundRequestStatus,
   now: Date
 ): RefundRequestForReview[] {
   const rows = selectRefundRequests(db)
-    .where(eq(refunds.status, status))
-    .orderBy(asc(refunds.requestedAt), asc(refunds.id))
+    .where(eq(refundRequests.status, status))
+    .orderBy(asc(refundRequests.requestedAt), asc(refundRequests.id))
     .all();
 
   return rows.map((row) => {
@@ -486,7 +529,7 @@ export function listRefundRequestsForReview(
       reason: row.reason,
       decisionNote: row.decisionNote,
       requestedAt: row.requestedAt,
-      resolvedAt: row.resolvedAt,
+      decidedAt: row.decidedAt,
       decidedByName: row.decidedByName,
       buyerName: row.buyerName,
       buyerEmail: row.buyerEmail,
@@ -500,7 +543,9 @@ export function listRefundRequestsForReview(
       // A Claimed Seat belongs to another learner, so the only way out of
       // that request is a decline. See docs/adr/0003.
       canApprove:
-        row.status === RefundStatus.Open && !ruleBreaks.includes("seat_claimed"),
+        row.status === RefundRequestStatus.Open &&
+        !ruleBreaks.includes("seat_claimed"),
+      refund: toRefundSummary(row),
     };
   });
 }
@@ -509,7 +554,7 @@ export function listRefundRequestsForReview(
 export function listRefundRequestsForBuyer(db: Queryable, buyerId: number) {
   return selectRefundRequests(db)
     .where(eq(purchases.userId, buyerId))
-    .orderBy(desc(refunds.requestedAt), desc(refunds.id))
+    .orderBy(desc(refundRequests.requestedAt), desc(refundRequests.id))
     .all()
     .map((row) => ({
       id: row.id,
@@ -517,10 +562,11 @@ export function listRefundRequestsForBuyer(db: Queryable, buyerId: number) {
       reason: row.reason,
       decisionNote: row.decisionNote,
       requestedAt: row.requestedAt,
-      resolvedAt: row.resolvedAt,
+      decidedAt: row.decidedAt,
       courseTitle: row.courseTitle,
       courseSlug: row.courseSlug,
       amountPaid: row.purchase.amountPaid,
+      refund: toRefundSummary(row),
     }));
 }
 
@@ -543,10 +589,10 @@ export function listTeamLicences(db: Queryable, buyerId: number, now: Date) {
     if (kindOf(seats) !== "team_licence") return [];
 
     const latestRefundRequest = db
-      .select({ status: refunds.status, decisionNote: refunds.decisionNote })
-      .from(refunds)
-      .where(eq(refunds.purchaseId, purchase.id))
-      .orderBy(desc(refunds.requestedAt), desc(refunds.id))
+      .select({ status: refundRequests.status, decisionNote: refundRequests.decisionNote })
+      .from(refundRequests)
+      .where(eq(refundRequests.purchaseId, purchase.id))
+      .orderBy(desc(refundRequests.requestedAt), desc(refundRequests.id))
       .get();
 
     return [
@@ -576,8 +622,8 @@ function findOpenRefundRequest(
 ): { ok: true; purchase: Purchase } | Failure {
   const refundRequest = tx
     .select()
-    .from(refunds)
-    .where(eq(refunds.id, refundRequestId))
+    .from(refundRequests)
+    .where(eq(refundRequests.id, refundRequestId))
     .get();
 
   if (!refundRequest) {
@@ -586,7 +632,7 @@ function findOpenRefundRequest(
 
   // The first decision wins. A second Platform Admin deciding the same
   // request lands here and is told what already happened.
-  if (refundRequest.status !== RefundStatus.Open) {
+  if (refundRequest.status !== RefundRequestStatus.Open) {
     return {
       ok: false,
       status: 409,
@@ -666,20 +712,30 @@ export function approveRefundRequest(
       }
     }
 
-    tx.update(refunds)
+    tx.update(refundRequests)
       .set({
-        status: RefundStatus.Approved,
-        amountRefunded: purchase.amountPaid,
+        status: RefundRequestStatus.Approved,
         decisionNote: note,
-        resolvedAt: now.toISOString(),
-        resolvedByUserId: platformAdminId,
+        decidedAt: now.toISOString(),
+        decidedByUserId: platformAdminId,
       })
-      .where(eq(refunds.id, refundRequestId))
+      .where(eq(refundRequests.id, refundRequestId))
+      .run();
+
+    // A Refund is always the full amount paid. The money is sent outside
+    // Cadence, so it starts Pending until a Platform Admin marks it.
+    tx.insert(refunds)
+      .values({
+        refundRequestId,
+        amount: purchase.amountPaid,
+        status: RefundStatus.Pending,
+        createdAt: now.toISOString(),
+      })
       .run();
 
     return {
       ok: true,
-      email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
+      email: buildDecisionEmail(tx, purchase, RefundRequestStatus.Approved, note),
     };
   });
 }
@@ -710,14 +766,14 @@ export function declineRefundRequest(
     const found = findOpenRefundRequest(tx, refundRequestId);
     if (!found.ok) return found;
 
-    tx.update(refunds)
+    tx.update(refundRequests)
       .set({
-        status: RefundStatus.Declined,
+        status: RefundRequestStatus.Declined,
         decisionNote: trimmedNote,
-        resolvedAt: now.toISOString(),
-        resolvedByUserId: platformAdminId,
+        decidedAt: now.toISOString(),
+        decidedByUserId: platformAdminId,
       })
-      .where(eq(refunds.id, refundRequestId))
+      .where(eq(refundRequests.id, refundRequestId))
       .run();
 
     return {
@@ -725,7 +781,7 @@ export function declineRefundRequest(
       email: buildDecisionEmail(
         tx,
         found.purchase,
-        RefundStatus.Declined,
+        RefundRequestStatus.Declined,
         trimmedNote
       ),
     };
@@ -739,7 +795,7 @@ export function declineRefundRequest(
 function buildDecisionEmail(
   db: Queryable,
   purchase: Purchase,
-  decision: RefundStatus.Approved | RefundStatus.Declined,
+  decision: RefundRequestStatus.Approved | RefundRequestStatus.Declined,
   note: string | null
 ): Email {
   const buyer = db
@@ -757,7 +813,7 @@ function buildDecisionEmail(
   const noteLines = note ? ["", note] : [];
 
   const middle =
-    decision === RefundStatus.Approved
+    decision === RefundRequestStatus.Approved
       ? [
           `We have approved your refund request for "${courseTitle}".`,
           `${formatPrice(purchase.amountPaid)}, the full amount you paid, is on its way back to you.`,
@@ -781,4 +837,60 @@ function buildDecisionEmail(
       "— The Cadence team",
     ].join("\n"),
   };
+}
+
+// ─── Marking a Refund ───
+
+export type MarkResult = { ok: true } | Failure;
+
+/**
+ * Records whether the money for a Refund went through. A Pending Refund can
+ * become Issued or Failed, and a Failed Refund can become Issued once it goes
+ * through. Issued is final.
+ */
+export function markRefund(
+  db: Db,
+  refundId: number,
+  platformAdminId: number,
+  status: RefundStatus.Issued | RefundStatus.Failed,
+  now: Date
+): MarkResult {
+  return db.transaction((tx): MarkResult => {
+    const refund = tx
+      .select()
+      .from(refunds)
+      .where(eq(refunds.id, refundId))
+      .get();
+
+    if (!refund) {
+      return { ok: false, status: 404, error: "Refund not found." };
+    }
+
+    if (refund.status === RefundStatus.Issued) {
+      return {
+        ok: false,
+        status: 409,
+        error: "This Refund was already issued.",
+      };
+    }
+
+    if (refund.status === status) {
+      return {
+        ok: false,
+        status: 409,
+        error: `This Refund is already ${status}.`,
+      };
+    }
+
+    tx.update(refunds)
+      .set({
+        status,
+        statusChangedAt: now.toISOString(),
+        statusChangedByUserId: platformAdminId,
+      })
+      .where(eq(refunds.id, refundId))
+      .run();
+
+    return { ok: true };
+  });
 }

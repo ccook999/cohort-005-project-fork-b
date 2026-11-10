@@ -16,7 +16,7 @@ import {
   courses,
   users,
   TeamMemberRole,
-  RefundStatus,
+  RefundRequestStatus,
 } from "~/db/schema";
 import { eq, and } from "drizzle-orm";
 import {
@@ -378,12 +378,12 @@ function TeamLicenceRow({ licence }: { licence: TeamLicence }) {
               {new Date(licence.purchasedAt).toLocaleDateString()}
             </p>
           </div>
-          {refundRequest?.status === RefundStatus.Open && (
+          {refundRequest?.status === RefundRequestStatus.Open && (
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
               Refund requested — seats on hold
             </span>
           )}
-          {refundRequest?.status === RefundStatus.Approved && (
+          {refundRequest?.status === RefundRequestStatus.Approved && (
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               Refunded
             </span>
@@ -400,7 +400,7 @@ function TeamLicenceRow({ licence }: { licence: TeamLicence }) {
           )}
         </div>
 
-        {refundRequest?.status === RefundStatus.Declined && refundRequest.decisionNote && (
+        {refundRequest?.status === RefundRequestStatus.Declined && refundRequest.decisionNote && (
           <p className="mt-3 rounded-md bg-muted p-2 text-sm">
             <span className="font-medium">Refund declined: </span>
             {refundRequest.decisionNote}

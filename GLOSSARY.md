@@ -7,7 +7,7 @@ Cadence sells video courses to learners. This glossary covers the language aroun
 ### People
 
 **Platform Admin**:
-A member of Cadence staff who runs the platform. Only a Platform Admin decides Refund Requests.
+A member of Cadence Staff who runs the platform. Only a Platform Admin decides Refund Requests and marks Refunds as Issued or Failed.
 _Avoid_: Admin (on its own), the team, Staff
 
 **Team Admin**:
@@ -39,8 +39,15 @@ A Seat a learner has claimed. It belongs to that learner, so a Team Licence with
 
 ### Refunds
 
+**Refund Eligibility**:
+The rules a Purchase must meet before its buyer can raise a Refund Request: something was paid, it is within 14 calendar days of buying, under 2 hours have been watched, under half the lessons are completed, and, for a Team Licence, no Seat has been claimed. They decide whether a request can be raised, not whether it is approved: the buyer keeps watching while the request is open, and a Platform Admin weighs any rule broken since then. The one exception is a Claimed Seat, which always rules out approval.
+_Avoid_: Cancellation rules, Refund policy
+
+**Eligible for a Refund**:
+A Purchase that meets Refund Eligibility right now.
+
 **Refund Request**:
-The buyer's ask, with their reason, to get back what they paid for one specific Purchase. A Platform Admin approves or declines it. One Purchase can have several Refund Requests over time, but only one can be undecided at once.
+The buyer's ask, with their reason, to get back what they paid for one specific Purchase. A Platform Admin approves or declines it, and that decision is final. One Purchase can have several Refund Requests over time, but only one can be undecided at once, and none can be raised once one has been approved.
 _Avoid_: Refund (for the ask itself), Cancellation, Reversal, Chargeback
 
 **Open Refund Request**:
@@ -48,22 +55,26 @@ A Refund Request no Platform Admin has decided yet. The buyer keeps the course w
 _Avoid_: Pending, Requested, Awaiting review
 
 **Approved Refund Request**:
-A Refund Request a Platform Admin has accepted. Approving it ends what the Purchase granted (the buyer's place on the course for an Individual Purchase; its Unclaimed Seats, which can then never be claimed, for a Team Licence) and leads to a Refund.
+A Refund Request a Platform Admin has accepted. Approving it ends what the Purchase granted (the buyer's place on the course for an Individual Purchase; its Unclaimed Seats, which can then never be claimed, for a Team Licence) and leads to a Refund. The buyer's history with the course is kept.
 
 **Declined Refund Request**:
 A Refund Request a Platform Admin has turned down. Nothing the Purchase granted is lost, it has no Refund, and the buyer may raise a new Refund Request.
+
+**Decision Note**:
+The Platform Admin's message to the buyer about their decision on a Refund Request. It is required when declining and optional when approving.
+_Avoid_: Decline Reason, Resolution note
 
 **Refund**:
 The money returned to the buyer after their Refund Request is approved. It is always the full amount they paid. A declined Refund Request has no Refund.
 _Avoid_: Reversal, Chargeback, Cancellation
 
 **Pending Refund**:
-A Refund whose Refund Request has been approved, where the money hasn't been confirmed as sent yet.
+A Refund whose Refund Request has been approved, where the money hasn't been confirmed as sent yet. A Platform Admin sends the money outside Cadence, then marks the Refund Issued or Failed.
 _Avoid_: Pending (for a Refund Request awaiting review)
 
 **Issued Refund**:
-A Refund where the money has been confirmed as sent back to the buyer.
+A Refund where the money has been confirmed as sent back to the buyer. It is final: it never becomes Failed afterwards.
 _Avoid_: Completed, Paid out
 
 **Failed Refund**:
-A Refund where the money couldn't be sent. The Refund Request stays approved, because the decision hasn't changed.
+A Refund where the money couldn't be sent. The Refund Request stays approved, because the decision hasn't changed, and the Refund can still become Issued once the money goes through. It stays Failed until then, however long that takes; the buyer doesn't get the course back.
