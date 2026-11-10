@@ -23,3 +23,11 @@ is a lie the type checker believes.
 Both switch the type checker off at the exact point you are least sure. If a
 value can be missing, narrow it with a check. If you cannot name the type,
 the shape is wrong — fix the shape.
+
+## Store money as integer cents
+
+Every amount of money is a whole number of cents in an `integer` column, and
+only `formatPrice(cents)` turns it into dollars for the screen. Work discounts
+out in cents and round once, with `Math.round`, at the point of sale. A
+floating-point dollar amount drifts under arithmetic, and SQLite has no
+decimal type to fall back on.
