@@ -1,0 +1,13 @@
+import { Knock, signUserToken } from "@knocklabs/node";
+const E = process.env, k = new Knock({ apiKey: E.KNOCK_SECRET_API_KEY });
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+const entries = async (id) => { const t = await signUserToken(id, { signingKey: E.KNOCK_SIGNING_KEY, expiresInSeconds: 60 }); const r = await fetch(`https://api.knock.app/v1/users/${id}/feeds/${E.KNOCK_FEED_CHANNEL_ID}`, { headers: { Authorization: `Bearer ${E.KNOCK_PUBLIC_API_KEY}`, "X-Knock-User-Token": t } }); return (await r.json()).entries.filter(e => e.source?.key === "new-enrollment"); };
+const latest = null;
+console.log("source on a delivered item:", JSON.stringify(latest?.source), "| categories field:", JSON.stringify(latest?.source?.categories ?? latest?.categories));
+await k.users.setPreferences("3", "default", { workflows: { "new-enrollment": false } });
+const n0 = (await entries("3")).length;
+await k.workflows.trigger("new-enrollment", { actor: { id: "5", name: "Emma Wilson" }, recipients: [{ id: "3", name: "Marcus Johnson" }], data: {} });
+await wait(10000);
+const n1 = (await entries("3")).length;
+console.log("workflow-level opt-out:", n0, "->", n1, n1 === n0 ? "suppressed ✔" : "DELIVERED ✘");
+await k.users.unsetPreferences("3", "default");
