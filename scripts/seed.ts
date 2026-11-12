@@ -2820,6 +2820,49 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log(`Created ${watchEventRows.length} video watch events.`);
 
+  // ─── Bookmarks and Notes ───
+  // Private to the Student who made them, on Lessons of Courses they're
+  // enrolled in.
+
+  db.insert(schema.bookmarks)
+    .values([
+      { userId: students[0].id, lessonId: course1LessonIds[2], createdAt: daysAgo(20) },
+      { userId: students[0].id, lessonId: course1LessonIds[7], createdAt: daysAgo(12) },
+      { userId: students[0].id, lessonId: course2LessonIds[1], createdAt: daysAgo(5) },
+      { userId: students[2].id, lessonId: course1LessonIds[4], createdAt: daysAgo(9) },
+    ])
+    .run();
+
+  db.insert(schema.notes)
+    .values([
+      {
+        userId: students[0].id,
+        lessonId: course1LessonIds[7],
+        body: "Generics: the <T> is a placeholder the caller fills in.\nRe-watch the constraint bit at 6:30.",
+        createdAt: daysAgo(12),
+        updatedAt: daysAgo(10),
+      },
+      {
+        userId: students[0].id,
+        lessonId: course2LessonIds[1],
+        body: "Try the # route params example myself before moving on.",
+        createdAt: daysAgo(5),
+        updatedAt: daysAgo(5),
+      },
+      {
+        userId: students[2].id,
+        lessonId: course1LessonIds[4],
+        body: "Still unsure when to use `unknown` vs `any`.",
+        createdAt: daysAgo(9),
+        updatedAt: daysAgo(8),
+      },
+    ])
+    .run();
+
+  console.log(
+    `Created ${countRows(schema.bookmarks)} bookmarks and ${countRows(schema.notes)} notes.`
+  );
+
   // ─── Summary ───
 
   const sevenDaysAgo = daysAgo(7);
@@ -2849,6 +2892,9 @@ This course is still in draft while the cluster examples are rewritten against t
   console.log(`  Enrollments: ${countRows(schema.enrollments)}`);
   console.log(`  Course ratings: ${countRows(schema.courseRatings)}`);
   console.log(`  Lesson comments: ${countRows(schema.comments)}`);
+  console.log(
+    `  Bookmarks: ${countRows(schema.bookmarks)}, notes: ${countRows(schema.notes)}`
+  );
   console.log(
     `  Lesson progress: ${countRows(schema.lessonProgress)} (${countRows(schema.lessonProgress, eq(schema.lessonProgress.status, LessonProgressStatus.Completed))} completed)`
   );
