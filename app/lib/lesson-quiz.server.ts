@@ -51,7 +51,7 @@ export function getBestAttempt(userId: number, quizId: number) {
     .get();
 }
 
-export function calculateGrade(score: number): string {
+function calculateGrade(score: number): string {
   if (score >= 0.9) return "A";
   if (score >= 0.8) return "B";
   if (score >= 0.7) return "C";

@@ -19,14 +19,12 @@ import { formatDuration } from "~/lib/utils";
 import { YouTubePlayer } from "~/components/youtube-player";
 
 import { CurriculumSidebar } from "~/components/curriculum-sidebar";
-import { LessonBreadcrumb } from "~/components/locked-lesson";
+import { LessonBreadcrumb } from "~/components/lesson-breadcrumb";
 import { QuizSection } from "~/components/lesson-quiz";
 
-export type LessonLoaderData = Route.ComponentProps["loaderData"];
+const AUTOPLAY_KEY = "cadence-autoplay";
 
-export const AUTOPLAY_KEY = "cadence-autoplay";
-
-export function useAutoplay() {
+function useAutoplay() {
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
@@ -55,7 +53,7 @@ export function useAutoplay() {
 export function FullLesson({
   data,
 }: {
-  data: Extract<LessonLoaderData, { view: "full" }>;
+  data: Extract<Route.ComponentProps["loaderData"], { view: "full" }>;
 }) {
   const {
     course,
@@ -302,7 +300,7 @@ export function FullLesson({
   );
 }
 
-export function BookmarkToggle({ bookmarked }: { bookmarked: boolean }) {
+function BookmarkToggle({ bookmarked }: { bookmarked: boolean }) {
   const fetcher = useFetcher<{ ok: boolean }>();
   const isSaving = fetcher.state !== "idle";
 
