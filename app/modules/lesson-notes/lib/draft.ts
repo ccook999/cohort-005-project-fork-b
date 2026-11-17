@@ -11,15 +11,17 @@ export type NoteDraft = {
   status: NoteDraftStatus;
 };
 
+// The action trims a note before it validates and saves it, so the draft is
+// judged as the server will see it.
 export function describeDraft(
   draft: string,
   savedBody: string | null,
   max: number
 ): NoteDraft {
-  const length = draft.length;
-  const status = statusOf(draft, savedBody, max);
+  const trimmed = draft.trim();
+  const status = statusOf(trimmed, savedBody, max);
   return {
-    length,
+    length: trimmed.length,
     max,
     canSave: status.kind === "unsaved",
     status,
@@ -27,14 +29,13 @@ export function describeDraft(
 }
 
 function statusOf(
-  draft: string,
+  trimmed: string,
   savedBody: string | null,
   max: number
 ): NoteDraftStatus {
-  if (draft.length > max)
-    return { kind: "too-long", overBy: draft.length - max };
-  if (draft === savedBody) return { kind: "saved" };
-  // The action rejects a blank note, so a whitespace-only draft is not saveable.
-  if (draft.trim().length === 0) return { kind: "empty" };
+  if (trimmed.length > max)
+    return { kind: "too-long", overBy: trimmed.length - max };
+  if (trimmed === savedBody) return { kind: "saved" };
+  if (trimmed.length === 0) return { kind: "empty" };
   return { kind: "unsaved" };
 }

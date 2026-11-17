@@ -62,4 +62,18 @@ describe("describeNoteDraft", () => {
       overBy: 1,
     });
   });
+
+  // The action trims before it saves, so the box keeps whitespace the saved
+  // note dropped.
+  it("is saved when the draft differs from the saved note only by surrounding whitespace", () => {
+    const draft = describeNoteDraft("hello\n", "hello", 10);
+    expect(draft.status).toEqual({ kind: "saved" });
+    expect(draft.canSave).toBe(false);
+  });
+
+  it("does not count surrounding whitespace against the limit", () => {
+    const draft = describeNoteDraft(`  ${"a".repeat(10)}\n`, null, 10);
+    expect(draft.status).toEqual({ kind: "unsaved" });
+    expect(draft.length).toBe(10);
+  });
 });
