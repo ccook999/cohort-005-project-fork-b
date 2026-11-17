@@ -18,6 +18,7 @@ run lint-staged npx lint-staged --no-stash --no-hide-partially-staged
 run typecheck npm run --silent typecheck
 run boundaries npm run --silent lint:boundaries
 run modules npm run --silent lint:modules
+run exemptions npm run --silent lint:exemptions -- --staged
 wait
 
 status=0
